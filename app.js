@@ -1,6 +1,6 @@
 'use strict';
 /* Study Quest 2.0 — local-only PWA. No personal schedules, exams or subjects are bundled. */
-const VERSION='2.0.0', STORAGE='studyquest_v2', TIMER_STORAGE='studyquest_timer_v2';
+const VERSION='2.1.0', STORAGE='studyquest_v2', TIMER_STORAGE='studyquest_timer_v2';
 const $=id=>document.getElementById(id);
 const html=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>globalThis.crypto?.randomUUID?.()||('sq'+Date.now()+Math.random().toString(36).slice(2));
@@ -49,7 +49,7 @@ const subjectAccuracy=sid=>{const x=correctStats(sid);return x.questions?x.corre
 function levelInfo(){let level=1,spent=0,cost=70;while(db.xp>=spent+cost&&level<500){spent+=cost;level++;cost=Math.round(70+(level-1)*30)}return{level,current:db.xp-spent,next:cost,pct:pct(db.xp-spent,cost)}}
 function streak(){let count=0,d=day();if(minutesDay(d)===0)d=shiftDay(d,-1);while(minutesDay(d)>0&&count<1000){count++;d=shiftDay(d,-1)}return count}
 const TAB_INFO=[['home','⌂','ホーム'],['study','◷','学習'],['plan','▦','計画'],['report','▥','分析'],['rewards','✦','報酬'],['settings','⚙','設定']];
-let page='home',calendarDay=day(),calendarView='week',reportRange='week',reportExam='',reportSubject='',reportChart='minutes',rewardManage=false,setupTab='exam';
+let page='home',calendarDay=day(),calendarView='week',reportRange='week',reportExam='',reportSubject='',reportChart='minutes',setupTab='exam';
 let liveModal=null,toastTimeout=null,importCandidate=null,restoreBackupConfirmed=false;
 function toast(message){const el=$('toast');if(!el)return;el.textContent=message;el.classList.remove('hidden');clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>el.classList.add('hidden'),3800)}
 function openModal(title,body,options=''){liveModal={title};$('modalBox').innerHTML=`<div class="section-head"><h2 id="modalTitle">${html(title)}</h2><button class="btn small secondary" data-action="modal-close" aria-label="閉じる">✕</button></div>${body}${options}`;$('modalOverlay').classList.remove('hidden');$('modalBox').scrollTop=0}
@@ -80,6 +80,28 @@ const ACHIEVEMENTS=[
  {id:'early',title:'朝の挑戦者',desc:'午前中にタイマー学習',check:()=>db.sessions.some(s=>s.source==='timer'&&s.startHour!=null&&s.startHour<12)},
  {id:'journey',title:'学びの旅人',desc:'学習記録30件',check:()=>db.sessions.length>=30},
 ];
+// Additional milestone achievements: reward consistency, quality, breadth and progress,
+// not only unusually long hours. They use actual records and are checked on each save.
+for(const [mins,label] of [[120,'小さな積み重ね'],[300,'集中の土台'],[1200,'20時間の探究者'],[3000,'50時間の研究者'],[6000,'100時間の学び手'],[12000,'200時間の達人']])
+ ACHIEVEMENTS.push({id:'minutes-'+mins,title:label,desc:`累計${fmtMin(mins)}の学習`,check:()=>sum(db.sessions,s=>s.minutes)>=mins});
+for(const [count,label] of [[2,'ふたつ目の記録'],[5,'学習の習慣化'],[10,'10回の挑戦'],[20,'学びの継続者'],[50,'50回の挑戦'],[100,'100回の記録'],[200,'学習ログの達人']])
+ ACHIEVEMENTS.push({id:'logs-'+count,title:label,desc:`学習記録${count}件`,check:()=>db.sessions.length>=count});
+for(const [count,label] of [[2,'二日連続'],[5,'五日連続'],[10,'10日連続'],[14,'二週間の習慣'],[21,'三週間の継続'],[30,'30日の努力'],[60,'60日の努力'],[100,'百日の習慣']])
+ ACHIEVEMENTS.push({id:'streak-'+count,title:label,desc:`${count}日連続学習`,check:()=>streak()>=count});
+for(const [count,label] of [[10,'問題の第一歩'],[50,'問題演習の常連'],[200,'200問の探究'],[500,'500問の探究'],[1000,'千問の挑戦者'],[2500,'問題演習マスター']])
+ ACHIEVEMENTS.push({id:'questions-'+count,title:label,desc:`新規問題${count}問`,check:()=>correctStats().newQuestions>=count});
+for(const [count,label] of [[1,'復習デビュー'],[3,'振り返りの芽'],[10,'復習の習慣'],[25,'復習の達人'],[50,'復習マスター']])
+ ACHIEVEMENTS.push({id:'review-'+count,title:label,desc:`復習予定${count}件を完了`,check:()=>db.reviews.filter(r=>r.status==='done').length>=count});
+for(const [count,label] of [[1,'最初のポモドーロ'],[5,'集中のリズム'],[10,'10セットの集中'],[25,'集中の習慣'],[50,'50セットの集中'],[100,'百回の集中']])
+ ACHIEVEMENTS.push({id:'pomo-'+count,title:label,desc:`ポモドーロ${count}セット`,check:()=>db.sessions.filter(s=>s.mode==='pomodoro').length>=count});
+for(const [count,label] of [[1,'科目の開拓者'],[2,'学びの二刀流'],[3,'分野をまたぐ人'],[5,'五科目の探究者']])
+ ACHIEVEMENTS.push({id:'subjects-'+count,title:label,desc:`${count}科目で学習記録`,check:()=>new Set(db.sessions.filter(s=>s.subjectId).map(s=>s.subjectId)).size>=count});
+for(const [count,label] of [[1,'ごほうびデビュー'],[3,'楽しみを見つけた人'],[10,'ごほうびの達人']])
+ ACHIEVEMENTS.push({id:'purchases-'+count,title:label,desc:`ごほうび${count}回交換`,check:()=>db.purchases.length>=count});
+for(const [count,label] of [[1,'教材を使い切った人'],[3,'教材を極める人'],[5,'教材の収集家']])
+ ACHIEVEMENTS.push({id:'materials-'+count,title:label,desc:`教材${count}件を完了`,check:()=>db.materials.filter(m=>m.total>0&&m.done>=m.total).length>=count});
+for(const [count,label] of [[1,'成績を記録'],[3,'成長の記録者'],[10,'成績分析の達人']])
+ ACHIEVEMENTS.push({id:'scores-'+count,title:label,desc:`模試・試験成績${count}件を登録`,check:()=>db.scores.length>=count});
 function completeAchievements(){let unlocked=0;for(const a of ACHIEVEMENTS){if(!db.achievements[a.id]&&a.check()){db.achievements[a.id]={date:day()};unlocked++}}if(unlocked){save();toast(`新しい実績を${unlocked}個獲得！`)}}
 function missionDefs(d=day()){const s=sessionsFor(d),minutes=sum(s,x=>x.minutes),a=correctStats(null,null),due=db.reviews.filter(r=>r.status==='done'&&r.completed===d).length;const favorite=bestSubjects(1)[0]?.s;
  return[{id:'start',label:'学習を1回記録する',detail:`${s.length}回`,done:s.length>=1},
@@ -104,13 +126,57 @@ function dayRest(d=day()){return dayMode(d)==='rest'||Boolean(db.bufferDays[d])}
 /* Calendar, recurring life events, Buffer and achievable study windows. */
 const minuteOf=t=>{const m=/^(\d{2}):(\d{2})$/.exec(t||'');return m?Number(m[1])*60+Number(m[2]):0};
 const prettyMinute=n=>`${pad(Math.floor(n/60)%24)}:${pad(n%60)}`;
-function eventOccurs(e,d){if(e.date>d)return false;const delta=diffDay(e.date,d),wd=dateAt(d).getDay();switch(e.repeat){case'daily':return true;case'weekdays':return wd!==0&&wd!==6;case'weekly':return delta%7===0;case'monthly':return dateAt(e.date).getDate()===dateAt(d).getDate();default:return e.date===d;}}
-function eventsOn(d){return db.events.filter(e=>eventOccurs(e,d)).sort((a,b)=>a.start.localeCompare(b.start))}
-function intervals(d){const result=[];for(const e of db.events){const start=minuteOf(e.start),end=minuteOf(e.end);if(eventOccurs(e,d)){if(end>start)result.push({start,end,event:e});else if(end<start){result.push({start,end:1440,event:e})}else if(start===end)result.push({start:0,end:1440,event:e})}if(end<start&&eventOccurs(e,shiftDay(d,-1)))result.push({start:0,end,event:e});}
- const status=db.dayStatus[d]||{};for(const x of result){if(x.event.kind==='work'&&status.homeAt&&x.end<=1440&&x.start<x.end)x.end=clamp(minuteOf(status.homeAt),x.start,1440);if(x.event.kind==='meal'&&status.dinnerEnded&&x.start<x.end)x.end=clamp(minuteOf(status.dinnerEnded),x.start,1440);if(x.event.kind==='meal'&&status.dinnerStarted&&x.start<x.end)x.start=clamp(minuteOf(status.dinnerStarted),0,x.end)}return result.filter(x=>x.end>x.start)}
+/* Repeating events are stored once; date-scoped exceptions and a valid-until boundary
+ * make edits/deletions reversible and prevent accidental changes to other dates.
+ * A single occurrence is represented by one time interval, even across midnight. */
+function eventSpanDays(e){
+ const explicit=e.endDate&&/^\d{4}-\d\d-\d\d$/.test(e.endDate)?Math.max(0,diffDay(e.date,e.endDate)):null;
+ return clamp(explicit===null?(minuteOf(e.end)<=minuteOf(e.start)?1:0):explicit,0,366);
+}
+function recurringOn(e,d){
+ if(!e||!e.date||d<e.date||(e.until&&d>=e.until))return false;
+ const delta=diffDay(e.date,d),wd=dateAt(d).getDay();
+ switch(e.repeat){case'daily':return true;case'weekdays':return wd!==0&&wd!==6;case'weekly':return delta%7===0;case'monthly':return dateAt(e.date).getDate()===dateAt(d).getDate();default:return e.date===d;}
+}
+function eventOccurs(e,d){return recurringOn(e,d)&&!e.exceptions?.[d]?.skip}
+function occurrenceData(e,startDate){
+ if(!eventOccurs(e,startDate))return null;
+ const exception=e.exceptions?.[startDate];
+ const data={...e,...(exception||{}),id:e.id,sourceEvent:e,occurrenceDate:startDate,repeat:e.repeat};
+ data.date=startDate;
+ data.spanDays=Number.isFinite(Number(exception?.spanDays))?clamp(Number(exception.spanDays),0,366):eventSpanDays(e);
+ data.endDate=shiftDay(startDate,data.spanDays);
+ return data;
+}
+function eventsOn(d){
+ const all=[];
+ for(const e of db.events){
+  const extra=Math.max(1,eventSpanDays(e),...Object.values(e.exceptions||{}).map(x=>number(x.spanDays,0)));
+  for(let back=0;back<=Math.min(366,extra);back++){
+   const origin=shiftDay(d,-back);
+   let o=occurrenceData(e,origin);if(!o)continue;
+   if(o.kind==='work'&&db.daysOff[origin])continue; // This-day off does not cancel the prior night's shift.
+   const absoluteStart=minuteOf(o.start),absoluteEnd=o.spanDays*1440+minuteOf(o.end);
+   const clipStart=Math.max(0,absoluteStart-back*1440),clipEnd=Math.min(1440,absoluteEnd-back*1440);
+   if(clipEnd<=clipStart)continue;
+   all.push({...o,clipStart,clipEnd,continuesFromPrevious:back>0,continuesIntoNext:absoluteEnd>(back+1)*1440});
+  }
+ }
+ return all.sort((a,b)=>a.clipStart-b.clipStart||a.name.localeCompare(b.name));
+}
+function intervals(d){
+ const status=db.dayStatus[d]||{};
+ return eventsOn(d).map(ev=>{
+   const x={start:ev.clipStart,end:ev.clipEnd,event:ev};
+   if(ev.occurrenceDate===d&&ev.kind==='work'&&status.homeAt&&x.end>x.start)x.end=clamp(minuteOf(status.homeAt),x.start,1440);
+   if(ev.occurrenceDate===d&&ev.kind==='meal'&&status.dinnerEnded&&x.end>x.start)x.end=clamp(minuteOf(status.dinnerEnded),x.start,1440);
+   if(ev.occurrenceDate===d&&ev.kind==='meal'&&status.dinnerStarted&&x.end>x.start)x.start=clamp(minuteOf(status.dinnerStarted),0,x.end);
+   return x;
+ }).filter(x=>x.end>x.start)
+}
 function mergeIntervals(xs){let merged=[];for(const x of [...xs].sort((a,b)=>a.start-b.start)){let last=merged.at(-1);if(last&&x.start<=last.end)last.end=Math.max(last.end,x.end);else merged.push({start:x.start,end:x.end})}return merged}
 function availableOn(d){if(dayRest(d))return{known:true,minutes:0,provisional:false,slots:[],reason:dayMode(d)==='rest'?'休養日':'Buffer Day'};
- const ev=eventsOn(d),past=eventsOn(shiftDay(d,-1));const hasSleep=ev.some(e=>e.kind==='sleep')||past.some(e=>e.kind==='sleep');const hasMeals=ev.some(e=>e.kind==='meal');const hasWork=ev.some(e=>e.kind==='work')||Boolean(db.daysOff[d]);
+ const ev=eventsOn(d),past=eventsOn(shiftDay(d,-1));const hasSleep=ev.some(e=>e.kind==='sleep')||past.some(e=>e.kind==='sleep');const hasMeals=ev.some(e=>e.kind==='meal');const hasWork=ev.some(e=>e.kind==='work')||Boolean(db.daysOff[d])||dateAt(d).getDay()===0||dateAt(d).getDay()===6;
  if(!(hasSleep&&hasMeals&&hasWork))return{known:false,minutes:null,provisional:true,slots:[],reason:'睡眠・食事・仕事（または休日）の登録が必要です'};
  const status=db.dayStatus[d]||{};const provisional=ev.some(e=>e.certainty==='flexible'&&((e.kind==='work'&&!status.homeAt)||(e.kind==='meal'&&!status.dinnerEnded)||(e.kind!=='meal'&&e.kind!=='work')));
  const occupied=mergeIntervals(intervals(d));let slots=[],cursor=0;for(const x of occupied){if(x.start>cursor)slots.push({start:cursor,end:x.start});cursor=Math.max(cursor,x.end)}if(cursor<1440)slots.push({start:cursor,end:1440});
@@ -160,9 +226,10 @@ function renderPlan(){const e=eventsOn(calendarDay),mode=dayMode(calendarDay);
  <div class="seg" style="margin-top:12px">${btn('週','calendar-week','','small '+(calendarView==='week'?'selected':'secondary'))}${btn('月','calendar-month','','small '+(calendarView==='month'?'selected':'secondary'))}${btn('今日','calendar-today','','small secondary')}</div>
  ${calendarCells()}
  ${planSummary(calendarDay)}
+ <div class="button-row" style="margin-top:12px">${btn(db.daysOff[calendarDay]?'✓ この日は仕事が休み':'この日は仕事が休み','toggle-day-off',`data-date="${calendarDay}"`,'small '+(db.daysOff[calendarDay]?'primary':'secondary'))}</div>
  <div class="section-head" style="margin-top:16px"><h3 style="margin:0">この日の予定</h3>${btn('＋ 予定を追加','event-add','','small primary')}</div>
  ${db.exams.filter(x=>x.date===calendarDay).map(ex=>`<div class="event-left exam"><b>試験：${html(ex.name)}</b><div class="tiny">${ex.tentative?'仮日程':'登録日程'}</div></div>`).join('')}
- ${e.length?`<div class="list">${e.map(ev=>`<div class="event-left ${html(ev.kind)}"><div class="value-row"><b>${html(ev.name)}</b>${btn('編集','event-edit',`data-id="${ev.id}"`,'small secondary')}</div><div class="tiny">${html(ev.start)}〜${html(ev.end)} ・ ${html({none:'今回のみ',daily:'毎日',weekdays:'平日',weekly:'毎週',monthly:'毎月'}[ev.repeat])}${ev.certainty==='flexible'?' ・ 時間未確定':''}</div></div>`).join('')}</div>`:'<div class="empty">予定はまだありません</div>'}
+ ${e.length?`<div class="list">${e.map(ev=>`<div class="event-left ${html(ev.kind)}"><div class="value-row"><b>${html(ev.name)}</b><div class="item-actions">${btn('編集','event-edit',`data-id="${ev.id}" data-date="${ev.occurrenceDate}"`,'small secondary')}${btn('削除','event-delete',`data-id="${ev.id}" data-date="${ev.occurrenceDate}"`,'small danger')}</div></div><div class="tiny">${ev.continuesFromPrevious?'前日から':'当日'} ${prettyMinute(ev.clipStart)}〜${prettyMinute(ev.clipEnd)}${ev.continuesIntoNext?'（翌日へ）':''} ・ ${html({none:'今回のみ',daily:'毎日',weekdays:'平日',weekly:'毎週',monthly:'毎月'}[ev.repeat])}${ev.certainty==='flexible'?' ・ 時間未確定':''}</div></div>`).join('')}</div>`:'<div class="empty">予定はまだありません</div>'}
  <details class="accordion"><summary>Buffer・休養日の設定</summary><div class="accordion-content"><div class="fields">${field('毎日のBuffer（分）','buffer',db.settings.bufferMinutes,'number','min="0" max="480" step="5"')}${choose('この日のモード','dayMode',[['normal','通常'],['busy','忙しい'],['rest','休養']],mode)}</div><label class="checkline"><input type="checkbox" id="bufferDayCheck" ${db.bufferDays[calendarDay]?'checked':''}>この日をBuffer Dayにする</label><label class="checkline"><input type="checkbox" id="dayOffCheck" ${db.daysOff[calendarDay]?'checked':''}>この日は仕事の予定がない</label>${btn('設定を保存','plan-options-save','','primary block')}<p class="tiny">Buffer Dayは追いつき学習にも休養にも使えます。休む日にもXPの減点はありません。</p></div></details>
  `);
  const eList=db.exams.map(e=>`<div class="item"><div class="item-title">${html(e.name)}</div><div class="item-sub">${jpDate(e.date)}${e.tentative?' ・ 仮日程':''} ・ ${examSubjects(e).length}科目</div><div class="item-actions">${btn('編集','exam-edit',`data-id="${e.id}"`,'small secondary')}${btn('科目を割り当て','exam-link',`data-id="${e.id}"`,'small secondary')}${btn('削除','exam-delete',`data-id="${e.id}"`,'small danger')}</div></div>`).join('');
@@ -196,15 +263,84 @@ function materialEditor(id=null){const m=id?material(id):null;openModal(m?'教�
  <p class="tiny">登録時の完了数は、アプリ使用前に終わっていた分です。以降は記録時の進捗数を加算し、二重計上を防ぎます。</p>
  <div class="modal-actions">${btn('キャンセル','modal-close')}<button class="btn primary" type="submit">保存する</button></div></form>`)}
 function progressEditor(id){const m=material(id);if(!m)return;openModal(`教材進捗：${m.name}`,`<form id="progressForm" class="form-stack" data-id="${id}"><div class="notice">${html(m.unit)}：全${m.total}／現在${m.done}（${pct(m.done,m.total)}%）</div>${field('現在の完了数','done',m.done,'number',`min="0" max="${m.total}" step="1" required`)}<p class="tiny">過去の学習記録に加算せず、進捗だけを補正します。</p><div class="modal-actions">${btn('キャンセル','modal-close')}<button class="btn primary" type="submit">更新する</button></div></form>`)}
-function eventEditor(id=null){const e=id?db.events.find(x=>x.id===id):null;openModal(e?'予定を編集':'予定を追加',`<form id="eventForm" class="form-stack" data-id="${e?.id||''}">
- ${field('予定名','name',e?.name||'','text','required maxlength="80" placeholder="仕事・夕食・睡眠など"')}
- ${field('日付（繰り返しの開始日）','date',e?.date||calendarDay,'date','required')}
- <div class="fields">${field('開始','start',e?.start||'18:00','time','required')}${field('終了','end',e?.end||'19:00','time','required')}</div>
- <div class="fields">${choose('繰り返し','repeat',[['none','今回だけ'],['daily','毎日'],['weekdays','平日'],['weekly','毎週'],['monthly','毎月']],e?.repeat||'none')}${choose('予定の確実性','certainty',[['fixed','時間が決まっている'],['flexible','時間が変わりやすい']],e?.certainty||'fixed')}</div>
- ${choose('予定の種類','kind',[['sleep','睡眠'],['work','仕事・用事'],['meal','食事'],['life','移動・生活'],['free','自由時間・休息']],e?.kind||'life')}
- <p class="tiny">生活予定は、このiPhone内にのみ保存されます。予定が不確定な日は学習可能時間も暫定表示になります。</p>
- <div class="modal-actions">${btn('キャンセル','modal-close')}<button type="submit" class="btn primary">予定を保存</button></div></form>
- ${e?`<div style="margin-top:10px">${btn('この予定を削除','event-delete',`data-id="${e.id}"`,'small danger')}</div>`:''}`)}
+function eventEditor(id=null,instanceDate=calendarDay){
+ const e=id?db.events.find(x=>x.id===id):null;
+ const occurrence=e?occurrenceData(e,instanceDate)||occurrenceData(e,e.date):null;
+ const base=occurrence||e;
+ const currentDate=e?(e.repeat==='none'?e.date:instanceDate):calendarDay;
+ const offset=base?.spanDays??(e?eventSpanDays(e):1);
+ const endDate=e?shiftDay(currentDate,offset):calendarDay;
+ openModal(e?'予定を編集':'予定を追加',`<form id="eventForm" class="form-stack" data-id="${e?.id||''}" data-occurrence="${html(instanceDate)}">
+ ${field('予定名','name',base?.name||'','text','required maxlength="90"')}
+ <div class="fields">${field('開始日','date',currentDate,'date','required')}${field('終了日','endDate',endDate,'date','required')}</div>
+ <div class="fields">${field('開始時刻','start',base?.start||'09:00','time','required')}${field('終了時刻','end',base?.end||'10:00','time','required')}</div>
+ ${choose('繰り返し','repeat',[['none','今回だけ'],['daily','毎日'],['weekdays','平日'],['weekly','毎週'],['monthly','毎月']],e?.repeat||'none')}
+ ${choose('予定の確実性','certainty',[['fixed','確定'],['flexible','変更の可能性あり']],base?.certainty||'fixed')}
+ ${choose('予定の種類','kind',[['sleep','睡眠'],['work','仕事・用事'],['meal','食事'],['life','移動・生活'],['free','自由時間・休息']],base?.kind||'life')}
+ ${e&&e.repeat!=='none'?choose('変更する範囲','scope',[['this','この日だけ'],['future','この日以降'],['all','すべての繰り返し']], 'this'):''}
+ <p class="tiny">日をまたぐ予定は終了日を翌日以降に指定できます。繰り返し予定の「この日だけ」は他の日に影響しません。</p>
+ <div class="modal-actions">${btn('キャンセル','modal-close')}<button type="submit" class="btn primary">保存する</button></div></form>
+ ${e?`<div class="button-right" style="margin-top:10px">${btn('この予定を削除','event-delete',`data-id="${e.id}" data-date="${instanceDate}"`,'small danger')}</div>`:''}`);
+}
+function eventPayload(f,n){
+ const o={name:f('name').trim(),date:f('date'),endDate:f('endDate'),start:f('start'),end:f('end'),repeat:f('repeat'),certainty:f('certainty'),kind:f('kind')};
+ if(!o.name||!o.date||!o.endDate||!o.start||!o.end)throw Error('予定名と開始・終了日時を入力してください');
+ const span=diffDay(o.date,o.endDate);
+ if(span<0||span>366)throw Error('終了日は開始日から366日以内の日付にしてください');
+ if(span===0&&minuteOf(o.end)<=minuteOf(o.start)){
+  // Natural overnight shortcut: 23:00 → 07:00 becomes tomorrow, unless a date was already chosen explicitly.
+  if(minuteOf(o.end)<minuteOf(o.start)){o.endDate=shiftDay(o.date,1)}
+  else throw Error('開始・終了時刻が同じ場合は、終了日を翌日以降にしてください');
+ }
+ if(o.repeat!=='none'&&diffDay(o.date,o.endDate)>30)throw Error('繰り返し予定は30日以内の長さにしてください');
+ return o;
+}
+function saveEventChange(e,occDate,scope,o){
+ if(!e){db.events.push({id:uid(),...o,exceptions:{}});return}
+ if(e.repeat==='none'){Object.assign(e,o);return}
+ if(scope==='all'){
+  // Keep the original series anchor; selecting a later occurrence must not erase earlier dates.
+  const span=diffDay(o.date,o.endDate);
+  Object.assign(e,{...o,date:e.date,endDate:shiftDay(e.date,span),exceptions:{}});
+  // Preserve a valid-until boundary if this is an earlier part of a split series.
+  return;
+ }
+ if(!recurringOn(e,occDate))throw Error('選択した日の繰り返し予定が見つかりません');
+ if(scope==='this'){
+  e.exceptions??={};
+  if(o.date!==occDate||o.repeat!==e.repeat){ // moving an occurrence creates a standalone override
+   e.exceptions[occDate]={skip:true};db.events.push({id:uid(),...o,repeat:'none',exceptions:{}});
+  }else{
+   const spanDays=diffDay(o.date,o.endDate);
+   e.exceptions[occDate]={name:o.name,start:o.start,end:o.end,spanDays,certainty:o.certainty,kind:o.kind};
+  }
+ }else if(scope==='future'){
+  if(o.date<occDate)throw Error('この日以降の変更では、開始日を過去に戻せません');
+  e.until=occDate; // exclusive, prior history is retained
+  const later={};for(const [k,v] of Object.entries(e.exceptions||{}))if(k>=occDate)later[k]=v;
+  for(const k of Object.keys(e.exceptions||{}))if(k>=occDate)delete e.exceptions[k];
+  db.events.push({id:uid(),...o,exceptions:later});
+ }
+}
+function eventDeleteDialog(id,occDate){
+ const e=db.events.find(x=>x.id===id);if(!e)return;
+ if(e.repeat==='none'){
+  if(confirm(`「${e.name}」を削除しますか？`)){db.events=db.events.filter(x=>x.id!==id);save();closeModal();redraw();toast('予定を削除しました')}
+  return;
+ }
+ openModal('繰り返し予定を削除',`<p>「${html(e.name)}」のどの範囲を削除しますか？</p>
+ <div class="form-stack">${choose('削除する範囲','deleteScope',[['this','この日だけ'],['future','この日以降'],['all','すべての繰り返し']], 'this')}
+ <p class="tiny">「この日だけ」は${jpDate(occDate)}の予定だけを削除します。</p>
+ <div class="modal-actions">${btn('キャンセル','modal-close')}${btn('削除する','event-delete-confirm',`data-id="${e.id}" data-date="${occDate}"`,'danger')}</div></div>`)
+}
+function deleteRecurringEvent(id,occDate,scope){
+ const e=db.events.find(x=>x.id===id);if(!e)return;
+ if(!confirm(`${scope==='this'?'この日だけ':scope==='future'?'この日以降':'すべて'}の「${e.name}」を削除しますか？`))return;
+ if(scope==='all'){db.events=db.events.filter(x=>x.id!==id)}
+ else if(scope==='future'){e.until=occDate;for(const k of Object.keys(e.exceptions||{}))if(k>=occDate)delete e.exceptions[k]}
+ else{e.exceptions??={};e.exceptions[occDate]={skip:true}}
+ save();closeModal();redraw();toast('予定を削除しました');
+}
 function statusEditor(d=day()){const status=db.dayStatus[d]||{};openModal('今日の生活状況',`<form id="statusForm" class="form-stack" data-date="${d}">
  <p class="tiny">必要な時刻だけ入力できます。現在時刻が初期値です。</p><div class="fields">${field('帰宅時刻','homeAt',status.homeAt||'','time')}${field('夕食開始','dinnerStarted',status.dinnerStarted||'','time')}</div><div class="fields">${field('夕食終了','dinnerEnded',status.dinnerEnded||'','time')}</div><div class="modal-actions">${btn('キャンセル','modal-close')}<button class="btn primary" type="submit">状況を更新</button></div></form>`)}
 function scoreEditor(){openModal('模試・本試験の成績を登録',`<form id="scoreForm" class="form-stack">${choose('試験','examId',db.exams.map(e=>[e.id,e.name]),db.exams[0]?.id||'','required')}${field('受験日','date',day(),'date','required')}
@@ -223,7 +359,7 @@ function handleForm(form){const fid=form.id,id=form.dataset.id||'',f=k=>required
  case'topicForm':{if(!f('name').trim())throw Error('分野名を入力してください');const s=subject(id);if(!s)throw Error('科目が見つかりません');if(s.topics.some(t=>t.name===f('name').trim()))throw Error('同じ分野があります');s.topics.push({id:uid(),name:f('name').trim()});break;}
  case'materialForm':{if(!db.subjects.length)throw Error('先に科目を追加してください');if(!f('name').trim()||!f('subjectId')||n('total')<=0||n('done')<0||n('done')>n('total'))throw Error('教材名、総量、完了数を確認してください');const data={name:f('name').trim(),subjectId:f('subjectId'),unit:f('unit'),total:Math.floor(n('total')),done:Math.floor(n('done')),minutesPerUnit:f('minutesPerUnit')&&n('minutesPerUnit')>0?n('minutesPerUnit'):null};if(id){Object.assign(material(id),data)}else db.materials.push({id:uid(),...data,baselineDone:data.done});break;}
  case'progressForm':{const m=material(id);if(!m||n('done')<0||n('done')>m.total)throw Error('完了数を確認してください');m.done=Math.floor(n('done'));break;}
- case'eventForm':{if(!f('name').trim()||!f('date')||!f('start')||!f('end'))throw Error('予定名と時刻を入力してください');const o={name:f('name').trim(),date:f('date'),start:f('start'),end:f('end'),repeat:f('repeat'),certainty:f('certainty'),kind:f('kind')};if(id)Object.assign(db.events.find(x=>x.id===id),o);else db.events.push({id:uid(),...o});calendarDay=o.date;break;}
+ case'eventForm':{const o=eventPayload(f,n);const e=db.events.find(x=>x.id===id);const scope=f('scope')||'all';saveEventChange(e,form.dataset.occurrence||o.date,scope,o);calendarDay=o.date;break;}
  case'statusForm':{const d=form.dataset.date;db.dayStatus[d]={homeAt:f('homeAt'),dinnerStarted:f('dinnerStarted'),dinnerEnded:f('dinnerEnded')};break;}
  case'scoreForm':{if(!f('examId')||!f('date')||n('max')<=0||n('score')<0||n('score')>n('max'))throw Error('試験・得点・満点を確認してください');db.scores.push({id:uid(),examId:f('examId'),date:f('date'),kind:f('kind'),score:n('score'),max:n('max'),note:f('note')});break;}
  case'rewardForm':{if(!f('name').trim()||!Number.isInteger(n('cost'))||n('cost')<1)throw Error('ごほうび名と必要コインを確認してください');if(id)Object.assign(db.rewards.find(x=>x.id===id),{name:f('name').trim(),cost:n('cost')});else db.rewards.push({id:uid(),name:f('name').trim(),cost:n('cost'),starter:false});break;}
@@ -338,10 +474,10 @@ function accuracyTrend(values,logs){const data=values.map(v=>{const xs=logs.filt
 function renderReport(){const logs=filteredSessions(),[from,to]=periodBounds(reportRange),qs=sum(logs,x=>x.questions),correct=sum(logs,x=>x.correct),minutes=sum(logs,x=>x.minutes);
  const distinct=new Set(logs.map(x=>x.date)).size;const bySubject=new Map();for(const l of logs){const key=l.subjectId||'none';bySubject.set(key,(bySubject.get(key)||0)+l.minutes)}
  const scores=db.scores.filter(s=>s.date>=from&&s.date<=to&&(!reportExam||s.examId===reportExam));const due=reviewsDue();const pendingReviews=db.reviews.filter(r=>r.status!=='done').sort((a,b)=>a.due.localeCompare(b.due));
- const chart=box('学習レポート',`<div class="fields">${choose('対象期間','reportRange',[['day','今日'],['week','直近7日'],['month','直近30日'],['quarter','3か月'],['half','6か月'],['year','1年'],['all','全期間']],reportRange)}${choose('試験','reportExam',[['','すべての試験'],...db.exams.map(e=>[e.id,e.name])],reportExam)}</div><div style="margin-top:12px">${choose('科目','reportSubject',[['','すべての科目'],...db.subjects.filter(s=>!reportExam||focusSubjectIds(reportExam).includes(s.id)).map(s=>[s.id,s.name])],reportSubject)}</div>
+ const chart=box('学習グラフ・レポート',`<div class="fields">${choose('対象期間','reportRange',[['day','今日'],['week','直近7日'],['month','直近30日'],['quarter','3か月'],['half','6か月'],['year','1年'],['all','全期間']],reportRange)}${choose('試験','reportExam',[['','すべての試験'],...db.exams.map(e=>[e.id,e.name])],reportExam)}</div><div style="margin-top:12px">${choose('科目','reportSubject',[['','すべての科目'],...db.subjects.filter(s=>!reportExam||focusSubjectIds(reportExam).includes(s.id)).map(s=>[s.id,s.name])],reportSubject)}</div>
  <div class="grid3" style="margin-top:13px">${stat('学習時間',fmtMin(minutes))}${stat('学習日数',`${distinct}日`)}${stat('正答率',qs?pct(correct,qs)+'%':'未算出')}</div>
  <div class="seg" style="margin-top:14px">${btn('学習時間','report-chart-minutes','','small '+(reportChart==='minutes'?'selected':'secondary'))}${btn('正答率','report-chart-accuracy','','small '+(reportChart==='accuracy'?'selected':'secondary'))}</div>
- ${reportChart==='minutes'?lineChart(chartGroups(logs,from,to)):accuracyTrend(chartGroups(logs,from,to),logs)}
+ ${!logs.length?'<p class="notice">まだこの期間の記録がありません。学習を記録するとグラフに反映されます。</p>':''}${reportChart==='minutes'?lineChart(chartGroups(logs,from,to)):accuracyTrend(chartGroups(logs,from,to),logs)}
  <div class="legend"><span><i></i>${reportChart==='minutes'?'期間別学習時間':'期間別の正答率'}</span><span>${jpDate(from)}〜${jpDate(to)}</span></div>
  <p class="tiny">同じ科目を複数の試験で共有しても、全試験の合計では学習記録を1回だけ数えます。</p>`);
  const max=Math.max(1,...bySubject.values());const subjects=box('科目別の学習と正答率',`${bySubject.size?[...bySubject].sort((a,b)=>b[1]-a[1]).map(([sid,m])=>{const relevant=logs.filter(s=>s.subjectId===sid);const q=sum(relevant,s=>s.questions),c=sum(relevant,s=>s.correct);return `<div class="item"><div class="value-row"><b>${html(subject(sid)?.name||'自由学習')}</b><span class="muted">${fmtMin(m)} ・ ${q?pct(c,q)+'%':'正答率未算出'}</span></div><div class="progress"><span style="width:${Math.round(m/max*100)}%"></span></div></div>`}).join(''):'<div class="empty">この期間の学習記録はありません</div>'}
@@ -361,32 +497,26 @@ function renderReport(){const logs=filteredSessions(),[from,to]=periodBounds(rep
  return chart+subjects+weaknesses+gap+progress+reviews+test+report;
 }
 /* Rewards: all catalog items including the starters are editable. */
-let longPressHandle=null;
+
 function renderRewards(){const lv=levelInfo();const items=box('ごほうびショップ',`<div class="grid2">${stat('使えるコイン',db.coins+'枚')}${stat('レベル','Lv.'+lv.level,'交換しても減りません')}</div>
- <div class="button-row" style="margin-top:12px">${btn('＋ ごほうびを追加','reward-add','','small primary')}${btn(rewardManage?'管理モードを閉じる':'編集・削除','reward-manage','','small secondary')}</div>
- <p class="tiny">ごほうびは自分で編集できます。長押しでも管理モードを開けます。</p>
- ${db.rewards.map(r=>`<div class="item" data-reward-id="${r.id}"><div class="value-row"><div><b class="item-title">${html(r.name)}</b><div class="item-sub">${r.cost} coins</div></div>${btn('交換','reward-buy',`data-id="${r.id}" ${db.coins<r.cost?'disabled':''}`,'small primary')}</div>${rewardManage?`<div class="item-actions">${btn('編集','reward-edit',`data-id="${r.id}"`,'small secondary')}${btn('削除','reward-delete',`data-id="${r.id}"`,'small danger')}</div>`:''}</div>`).join('')||'<div class="empty">ごほうびがありません。好きなものを登録しよう</div>'}`);
- const titles=box('称号と実績',`<p class="muted">実績を達成すると称号が使えます。装備してもXPやコインは変わりません。</p>
- ${ACHIEVEMENTS.map(a=>{const got=db.achievements[a.id];return `<div class="item"><div class="value-row"><div><b>${html(a.title)}</b><div class="item-sub">${html(a.desc)}</div></div><span class="badge ${got?'good':''}">${got?'獲得':'未獲得'}</span></div>${got?`<div class="button-right">${btn(db.equippedTitle===a.id?'装備中':'称号を装備','title-equip',`data-id="${a.id}"`,'small '+(db.equippedTitle===a.id?'primary':'secondary'))}</div>`:''}</div>`}).join('')}`);
+ <div class="button-row" style="margin-top:12px">${btn('＋ ごほうびを追加','reward-add','','small primary')}</div>
+ <p class="tiny">初期ごほうびも含めて編集・削除できます。</p>
+ ${db.rewards.map(r=>`<div class="item" data-reward-id="${r.id}"><div class="value-row"><div><b class="item-title">${html(r.name)}</b><div class="item-sub">${r.cost} coins</div></div>${btn('交換','reward-buy',`data-id="${r.id}" ${db.coins<r.cost?'disabled':''}`,'small primary')}</div><div class="item-actions">${btn('編集','reward-edit',`data-id="${r.id}"`,'small secondary')}${btn('削除','reward-delete',`data-id="${r.id}"`,'small danger')}</div></div>`).join('')||'<div class="empty">ごほうびがありません。好きなものを登録しよう</div>'}`);
+ const titles=box('称号と実績',`<p class="muted">${Object.keys(db.achievements).length} / ${ACHIEVEMENTS.length}個獲得。獲得済みの称号を装備できます。</p><details class="accordion"><summary>実績一覧を表示する</summary><div class="accordion-content">
+ ${ACHIEVEMENTS.map(a=>{const got=db.achievements[a.id];return `<div class="item"><div class="value-row"><div><b>${html(a.title)}</b><div class="item-sub">${html(a.desc)}</div></div><span class="badge ${got?'good':''}">${got?'獲得':'未獲得'}</span></div>${got?`<div class="button-right">${btn(db.equippedTitle===a.id?'装備中':'称号を装備','title-equip',`data-id="${a.id}"`,'small '+(db.equippedTitle===a.id?'primary':'secondary'))}</div><div class="tiny">獲得日：${html(got.date||'記録なし')}</div>`:''}</div>`}).join('')}</div></details>`);
  const history=box('コインの利用履歴',`${db.purchases.length?[...db.purchases].reverse().map(p=>`<div class="item"><div class="value-row"><b>${html(p.name)}</b><span>${p.cost} coins</span></div><div class="item-sub">${jpDate(p.date)}</div></div>`).join(''):'<div class="empty">まだ交換履歴がありません</div>'}`);
  return items+titles+history;
 }
 /* Settings, local notifications, safe import/export and two-step reset. */
-function renderSettings(){const s=db.settings;return box('通知・リマインダー',`<p class="muted">アプリを開いたときにお知らせを表示します。</p>
- <div class="form-stack">${field('学習開始の目安時刻','reminderTime',s.reminderTime,'time')}
- <label class="checkline"><input type="checkbox" id="notifyStudy" ${s.notifyStudy?'checked':''}>学習開始のリマインダー</label>
- <label class="checkline"><input type="checkbox" id="notifyExams" ${s.notifyExams?'checked':''}>試験日カウントダウン</label>
- <label class="checkline"><input type="checkbox" id="notifyReview" ${s.notifyReview?'checked':''}>復習予定の通知</label>
- <label class="checkline"><input type="checkbox" id="notifyMission" ${s.notifyMission?'checked':''}>未達成ミッション</label>
- ${btn('通知設定を保存','notifications-save','','primary block')}
- <p class="tiny">アプリを閉じている間のプッシュ通知には対応していません。</p></div>`)
+function renderSettings(){return box('アプリ内のお知らせ',`<p class="muted">アプリを開いたときに、期限が来た復習や近い試験などをお知らせします。</p>
+ `)
  +box('データのバックアップ',`<p class="muted">学習記録はこの端末内に保存しています。機種変更などに備えて定期的にバックアップしてください。</p>
  <div class="button-row">${btn('JSONを保存','backup-json','','primary')}${btn('学習記録CSV','backup-csv','','secondary')}</div>
  <div class="divider"></div><div class="field"><label for="restoreFile">JSONバックアップを復元</label><input type="file" id="restoreFile" accept=".json,application/json"></div>
- <p class="tiny">読み込んだ後に内容と件数をプレビューできます。復元前に現在のデータのバックアップを作成します。</p>`)
+ <p class="tiny">復元前に内容と件数を確認できます。</p>`)
  +box('詳細設定',`<details class="accordion"><summary>以前のバージョンからの移行</summary><div class="accordion-content"><p class="tiny">旧版のデータは自動で読み込みません。必要な場合のみ手動で移行できます。</p>${btn('旧版の保存データを確認','legacy-preview','','small secondary')}</div></details>
  <details class="accordion"><summary>アプリのデータを初期化</summary><div class="accordion-content"><p class="tiny warn">試験・学習・予定・XP・ごほうび等のデータを初期化します。</p>${btn('データを初期化する','reset-open','','small danger')}</div></details>`)
- +box('アプリについて',`<div class="value-row"><b>Study Quest</b><span class="badge">v${VERSION}</span></div><p class="tiny">このアプリには、個人の試験・予定・学習履歴を初期データとして含めていません。登録データはこの端末のブラウザ保存領域に保存されます。</p><p class="tiny">クラウド同期とバックグラウンド通知は未搭載です。</p>`);
+ +box('アプリについて',`<div class="value-row"><b>Study Quest</b><span class="badge">v${VERSION}</span></div><p class="tiny">個人の試験・予定・学習履歴を初期データとして含めず、登録した情報は端末のブラウザ保存領域に保存します。</p>`);
 }
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),12000)}
 function backupJSON(label=''){const packed={meta:{format:'study-quest',schema:2,appVersion:VERSION,exportedAt:new Date().toISOString(),storage:'local-only'},data:db};downloadBlob(new Blob([JSON.stringify(packed,null,2)],{type:'application/json'}),`study-quest-${fileSafe(label||day())}.json`)}
@@ -406,7 +536,17 @@ function previewImport(data,legacy=false){const d=normalize(data);importCandidat
  <div class="notice">復元すると、現在の学習記録・XP・予定などを上書きします。実行前に必ずバックアップを保存してください。</div>
  ${btn('① 現在のデータをバックアップ','backup-before-restore','','secondary block')}
  <div class="modal-actions">${btn('キャンセル','modal-close','','secondary')}<button id="restoreConfirmed" class="btn primary" type="button" data-action="restore-confirm" disabled>② 復元する</button></div>`)}
-function checkInAppReminder(){const key=`sq_notice_${day()}`;try{if(sessionStorage.getItem(key))return;sessionStorage.setItem(key,'1')}catch{}const d=day(),m=[];if(db.settings.notifyReview&&reviewsDue().length)m.push(`復習の予定が${reviewsDue().length}件あります`);if(db.settings.notifyExams&&upcomingExams(1)[0]&&diffDay(d,upcomingExams(1)[0].date)<=3)m.push('試験日が近づいています');if(db.settings.notifyStudy&&timeNow()>=db.settings.reminderTime&&!minutesDay(d)&&!dayRest(d))m.push('今日の学習を記録できます');if(db.settings.notifyMission&&!dayRest(d)&&db.sessions.length>0&&timeNow()>=db.settings.reminderTime&&missionDefs(d).some(x=>!x.done))m.push('未達成のミッションがあります');if(m.length)toast(m[0]);}
+function checkInAppReminder(){
+ // The in-app popup is intentionally independent of any unsupported background notification settings.
+ const key=`sq_notice_${day()}`;try{if(sessionStorage.getItem(key))return}catch{}
+ const msg=[];const due=reviewsDue();if(due.length)msg.push(`復習の期限が来ているものが${due.length}件あります。`);
+ const upcoming=upcomingExams(1)[0];if(upcoming&&diffDay(day(),upcoming.date)<=7)msg.push(`「${upcoming.name}」まであと${diffDay(day(),upcoming.date)}日です。`);
+ if(!dayRest()&&db.exams.length&&!minutesDay(day()))msg.push('今日の学習はまだ記録されていません。無理のない範囲で始めましょう。');
+ if(!dayRest()&&minutesDay(day())>0&&missionDefs().some(m=>!m.done))msg.push('今日の未達成ミッションも確認できます。');
+ if(!msg.length)return;
+ try{sessionStorage.setItem(key,'1')}catch{}
+ openModal('今日のお知らせ',`<div class="form-stack">${msg.map(m=>`<p class="notice">${html(m)}</p>`).join('')}${btn('確認しました','modal-close','','primary block')}</div>`);
+}
 /* Centralized, accessible event handling. */
 function shiftMonth(d,inc){const dt=dateAt(d),dayOfMonth=dt.getDate(),next=new Date(dt.getFullYear(),dt.getMonth()+inc,1);const last=new Date(next.getFullYear(),next.getMonth()+1,0).getDate();next.setDate(Math.min(dayOfMonth,last));return day(next)}
 function updateStatus(key){if(key==='rest'){db.dayModes[day()]=db.dayModes[day()]==='rest'?'normal':'rest'}else{db.dayStatus[day()]??={};db.dayStatus[day()][key]=timeNow()}save();redraw();toast('生活状況を更新しました')}
@@ -435,10 +575,11 @@ function onAction(a,b){const action=a.dataset.action,id=a.dataset.id||'';
  case'calendar-month':calendarView='month';redraw();break;
  case'calendar-today':calendarDay=day();redraw();break;
  case'pick-day':calendarDay=a.dataset.date;redraw();break;
+ case'toggle-day-off':db.daysOff[calendarDay]=!db.daysOff[calendarDay];save();redraw();toast(db.daysOff[calendarDay]?'この日だけ仕事の予定を除外しました':'この日の仕事予定を元に戻しました');break;
  case'plan-options-save':{
   const val=number($('f-buffer')?.value,60);if(val<0||val>480){toast('Bufferは0〜480分にしてください');break}
   db.settings.bufferMinutes=val;db.dayModes[calendarDay]=$('f-dayMode').value;db.bufferDays[calendarDay]=$('bufferDayCheck').checked;db.daysOff[calendarDay]=$('dayOffCheck').checked;save();redraw();toast('設定を保存しました');break;}
- case'event-add':eventEditor();break;case'event-edit':eventEditor(id);break;case'event-delete':deleteEntry('event',id);break;
+ case'event-add':eventEditor();break;case'event-edit':eventEditor(id,a.dataset.date||calendarDay);break;case'event-delete':eventDeleteDialog(id,a.dataset.date||calendarDay);break;case'event-delete-confirm':deleteRecurringEvent(id,a.dataset.date||calendarDay,$('f-deleteScope')?.value||'this');break;
  case'exam-add':examEditor();break;case'exam-edit':examEditor(id);break;case'exam-link':linkEditor(id);break;case'exam-delete':deleteEntry('exam',id);break;
  case'subject-add':subjectEditor();break;case'subject-edit':subjectEditor(id);break;case'subject-delete':deleteEntry('subject',id);break;case'topic-add':topicEditor(id);break;
  case'material-add':if(!db.subjects.length){toast('先に科目を登録してください');break}materialEditor();break;
@@ -460,14 +601,14 @@ function onAction(a,b){const action=a.dataset.action,id=a.dataset.id||'';
  case'score-delete':deleteEntry('score',id);break;
  case'review-start':{
   const r=review(id);if(!r)break;draft.manualReviewId=id;draft.manualSubject=r.subjectId;draft.manualExam=r.examId||subjectExams(r.subjectId)[0]?.id||'';draft.manualTopic=r.topicId||'';draft.manualMaterial=r.materialId||'';go('study');requestAnimationFrame(()=>$('manualForm')?.scrollIntoView({behavior:'smooth',block:'start'}));toast('復習する内容を選び、学習後に記録してください');break;}
- case'reward-manage':rewardManage=!rewardManage;redraw();break;
+ 
  case'reward-add':rewardEditor();break;case'reward-edit':rewardEditor(id);break;case'reward-delete':deleteEntry('reward',id);break;
  case'reward-buy':{
   const r=db.rewards.find(x=>x.id===id);if(!r||db.coins<r.cost){toast('コインが足りません');break}
   if(!confirm(`「${r.name}」を${r.cost}コインで交換しますか？`))break;
-  db.coins-=r.cost;db.purchases.push({id:uid(),name:r.name,cost:r.cost,date:day()});save();redraw();toast('ごほうびを交換しました！');break;}
+  db.coins-=r.cost;db.purchases.push({id:uid(),name:r.name,cost:r.cost,date:day()});save();completeAchievements();redraw();toast('ごほうびを交換しました！');break;}
  case'title-equip':if(db.achievements[id]){db.equippedTitle=db.equippedTitle===id?null:id;save();redraw();toast('称号を変更しました')}break;
- case'notifications-save':db.settings.reminderTime=$('f-reminderTime').value;for(const k of ['notifyStudy','notifyExams','notifyReview','notifyMission'])db.settings[k]=$(k).checked;save();toast('通知設定を保存しました');break;
+ 
  case'backup-json':backupJSON();break;case'backup-csv':backupCSV();break;
  case'legacy-preview':{
   let old;try{old=JSON.parse(localStorage.getItem('studyquest_v1')||'null')}catch{}
@@ -493,11 +634,8 @@ document.addEventListener('change',e=>{const t=e.target;if(t.matches('#f-reportR
  else if(t.id==='restoreFile'&&t.files?.[0]){const file=t.files[0];if(file.size>12*1024*1024){toast('バックアップファイルが大きすぎます');return}
   file.text().then(raw=>{let parsed=JSON.parse(raw);if(parsed?.meta?.schema===2)previewImport(parsed.data);else if(parsed?.version===2)previewImport(parsed);else previewImport(convertLegacy(parsed),true)}).catch(err=>toast('JSONを読み込めません：'+err.message));}
  else if(/^f-(manual|timer)(Exam|Subject|Topic|Material)$/.test(t.id))changeStudySelect(t.id.slice(2));});
-// Long-press on a reward also opens the accessible management mode; scrolling cancels it.
-document.addEventListener('pointerdown',e=>{if(page!=='rewards'||e.target.closest('button'))return;const row=e.target.closest('[data-reward-id]');if(!row)return;clearTimeout(longPressHandle);longPressHandle=setTimeout(()=>{rewardManage=true;redraw();toast('編集・削除を表示しました')},600)});
-for(const type of ['pointerup','pointercancel','pointermove','scroll'])document.addEventListener(type,()=>clearTimeout(longPressHandle),{passive:true});
 // Persist elapsed wall-clock progress. Real background pushes require a backend and are not claimed.
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)timerTick()});
 function startApp(){completeAchievements();render();checkInAppReminder();setInterval(timerTick,350);
- if('serviceWorker'in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('./sw.js?v=20',{scope:'./'}).catch(err=>console.warn('Offline support unavailable:',err));}}
+ if('serviceWorker'in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('./sw.js?v=21',{scope:'./'}).catch(err=>console.warn('Offline support unavailable:',err));}}
 startApp();
