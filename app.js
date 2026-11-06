@@ -1,6 +1,6 @@
 'use strict';
 /* Study Quest 2.0 — local-only PWA. No personal schedules, exams or subjects are bundled. */
-const VERSION='2.1.0', STORAGE='studyquest_v2', TIMER_STORAGE='studyquest_timer_v2';
+const VERSION='2.2.0', STORAGE='studyquest_v2', TIMER_STORAGE='studyquest_timer_v2';
 const $=id=>document.getElementById(id);
 const html=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>globalThis.crypto?.randomUUID?.()||('sq'+Date.now()+Math.random().toString(36).slice(2));
@@ -322,24 +322,58 @@ function saveEventChange(e,occDate,scope,o){
   db.events.push({id:uid(),...o,exceptions:later});
  }
 }
+/* Destructive operations are always scoped explicitly. The default never removes
+   an entire recurring series. One occurrence can span midnight, so the occurrence
+   start date (not the current calendar date) is the deletion key. */
 function eventDeleteDialog(id,occDate){
  const e=db.events.find(x=>x.id===id);if(!e)return;
+ const target=e.repeat==='none'?e.date:occDate;
+ const overnight=eventSpanDays(e)>0;
  if(e.repeat==='none'){
-  if(confirm(`「${e.name}」を削除しますか？`)){db.events=db.events.filter(x=>x.id!==id);save();closeModal();redraw();toast('予定を削除しました')}
+  openModal('予定を削除',`<div class="notice warning">「${html(e.name)}」を削除しますか？</div>
+   <p class="tiny">${jpDate(target)}の予定を削除します。${overnight?'日をまたぐ予定なので、翌日以降の表示も消えます。':''}</p>
+   <div class="modal-actions">${btn('キャンセル','modal-close')}${btn('この予定を削除','event-delete-one',`data-id="${e.id}" data-date="${target}"`,'danger')}</div>`);
   return;
  }
- openModal('繰り返し予定を削除',`<p>「${html(e.name)}」のどの範囲を削除しますか？</p>
- <div class="form-stack">${choose('削除する範囲','deleteScope',[['this','この日だけ'],['future','この日以降'],['all','すべての繰り返し']], 'this')}
- <p class="tiny">「この日だけ」は${jpDate(occDate)}の予定だけを削除します。</p>
- <div class="modal-actions">${btn('キャンセル','modal-close')}${btn('削除する','event-delete-confirm',`data-id="${e.id}" data-date="${occDate}"`,'danger')}</div></div>`)
+ openModal('この日の予定を削除',`<div class="notice warning"><b>${jpDate(target)}の「${html(e.name)}」だけ</b>を削除します。<br>ほかの日の繰り返し予定は残ります。</div>
+   ${overnight?'<p class="tiny">日をまたぐ予定のため、翌日側に表示される同じ予定も消えます。</p>':''}
+   <div class="modal-actions">${btn('キャンセル','modal-close')}${btn('この日だけ削除','event-delete-one',`data-id="${e.id}" data-date="${target}"`,'danger')}</div>
+   <details class="accordion" style="margin-top:20px"><summary>ほかの日もまとめて削除する場合</summary>
+    <div class="accordion-content"><p class="tiny">以下は複数日の予定を削除します。通常は上の「この日だけ削除」を使ってください。</p>
+     <div class="form-stack">
+      ${btn('この日以降の繰り返しを削除','event-delete-future',`data-id="${e.id}" data-date="${target}"`,'secondary block')}
+      ${btn('すべての繰り返しを削除…','event-delete-all-prepare',`data-id="${e.id}" data-date="${target}"`,'danger block')}
+     </div>
+    </div>
+   </details>`);
+}
+function eventDeleteAllDialog(id,occDate){
+ const e=db.events.find(x=>x.id===id);if(!e||e.repeat==='none')return;
+ openModal('繰り返し全件の削除',`<div class="notice warning"><b>注意：</b>「${html(e.name)}」の繰り返し予定をまとめて削除します。「この日だけ削除」とは違います。</div>
+ <p class="tiny">全件削除する場合だけ「全件削除」と入力してください。</p>
+ ${field('確認のため入力','deleteAllText','','text','autocomplete="off" placeholder="全件削除"')}
+ <div class="modal-actions">${btn('戻る','event-delete',`data-id="${e.id}" data-date="${occDate}"`,'secondary')}${btn('繰り返し全件を削除','event-delete-all-confirm',`data-id="${e.id}" data-date="${occDate}"`,'danger')}</div>`);
 }
 function deleteRecurringEvent(id,occDate,scope){
  const e=db.events.find(x=>x.id===id);if(!e)return;
- if(!confirm(`${scope==='this'?'この日だけ':scope==='future'?'この日以降':'すべて'}の「${e.name}」を削除しますか？`))return;
- if(scope==='all'){db.events=db.events.filter(x=>x.id!==id)}
- else if(scope==='future'){e.until=occDate;for(const k of Object.keys(e.exceptions||{}))if(k>=occDate)delete e.exceptions[k]}
- else{e.exceptions??={};e.exceptions[occDate]={skip:true}}
- save();closeModal();redraw();toast('予定を削除しました');
+ if(!['this','future','all'].includes(scope))throw Error('削除範囲が不明です。操作を中止しました');
+ if(e.repeat==='none'){
+  if(scope!=='this')throw Error('今回のみの予定は、1件だけ削除できます');
+  db.events=db.events.filter(x=>x.id!==id);
+ }else if(scope==='this'){
+  if(!recurringOn(e,occDate))throw Error('選択した日の予定が見つかりません');
+  e.exceptions??={};e.exceptions[occDate]={skip:true};
+ }else if(scope==='future'){
+  if(!recurringOn(e,occDate))throw Error('選択した日の予定が見つかりません');
+  if(!confirm(`${jpDate(occDate)}以降の「${e.name}」を削除します。以前の予定は残ります。続行しますか？`))return;
+  e.until=occDate;for(const k of Object.keys(e.exceptions||{}))if(k>=occDate)delete e.exceptions[k];
+ }else{
+  // Entire-series deletion needs a separately displayed screen and exact text.
+  if($('f-deleteAllText')?.value!=='全件削除'){toast('全件削除するときだけ「全件削除」と入力してください');return}
+  if(!confirm(`最終確認：「${e.name}」の繰り返し予定を全件削除しますか？`))return;
+  db.events=db.events.filter(x=>x.id!==id);
+ }
+ save();closeModal();redraw();toast(scope==='this'?'この日だけ削除しました':scope==='future'?'この日以降を削除しました':'すべての繰り返しを削除しました');
 }
 function statusEditor(d=day()){const status=db.dayStatus[d]||{};openModal('今日の生活状況',`<form id="statusForm" class="form-stack" data-date="${d}">
  <p class="tiny">必要な時刻だけ入力できます。現在時刻が初期値です。</p><div class="fields">${field('帰宅時刻','homeAt',status.homeAt||'','time')}${field('夕食開始','dinnerStarted',status.dinnerStarted||'','time')}</div><div class="fields">${field('夕食終了','dinnerEnded',status.dinnerEnded||'','time')}</div><div class="modal-actions">${btn('キャンセル','modal-close')}<button class="btn primary" type="submit">状況を更新</button></div></form>`)}
@@ -579,7 +613,7 @@ function onAction(a,b){const action=a.dataset.action,id=a.dataset.id||'';
  case'plan-options-save':{
   const val=number($('f-buffer')?.value,60);if(val<0||val>480){toast('Bufferは0〜480分にしてください');break}
   db.settings.bufferMinutes=val;db.dayModes[calendarDay]=$('f-dayMode').value;db.bufferDays[calendarDay]=$('bufferDayCheck').checked;db.daysOff[calendarDay]=$('dayOffCheck').checked;save();redraw();toast('設定を保存しました');break;}
- case'event-add':eventEditor();break;case'event-edit':eventEditor(id,a.dataset.date||calendarDay);break;case'event-delete':eventDeleteDialog(id,a.dataset.date||calendarDay);break;case'event-delete-confirm':deleteRecurringEvent(id,a.dataset.date||calendarDay,$('f-deleteScope')?.value||'this');break;
+ case'event-add':eventEditor();break;case'event-edit':eventEditor(id,a.dataset.date||calendarDay);break;case'event-delete':eventDeleteDialog(id,a.dataset.date||calendarDay);break;case'event-delete-one':deleteRecurringEvent(id,a.dataset.date||calendarDay,'this');break;case'event-delete-future':deleteRecurringEvent(id,a.dataset.date||calendarDay,'future');break;case'event-delete-all-prepare':eventDeleteAllDialog(id,a.dataset.date||calendarDay);break;case'event-delete-all-confirm':deleteRecurringEvent(id,a.dataset.date||calendarDay,'all');break;
  case'exam-add':examEditor();break;case'exam-edit':examEditor(id);break;case'exam-link':linkEditor(id);break;case'exam-delete':deleteEntry('exam',id);break;
  case'subject-add':subjectEditor();break;case'subject-edit':subjectEditor(id);break;case'subject-delete':deleteEntry('subject',id);break;case'topic-add':topicEditor(id);break;
  case'material-add':if(!db.subjects.length){toast('先に科目を登録してください');break}materialEditor();break;
